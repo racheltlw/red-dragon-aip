@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  fastapi:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./generated_audio:/app/generated_audio
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python app.py
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s  # Give enough time for model download and initialization
+    restart: unless-stopped
+
+  gradio:
+    build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./generated_audio:/app/generated_audio
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BACKEND_URL=http://fastapi:8000
+    command: >
+      /bin/bash -c "
+      echo 'Waiting for FastAPI service...' &&
+      while ! curl -s http://fastapi:8000/ > /dev/null; do
+        sleep 5;
+      done &&
+      echo 'FastAPI service is up!' &&
+      python gradio_app.py"
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    restart: unless-stopped 
